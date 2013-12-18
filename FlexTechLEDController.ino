@@ -16,7 +16,7 @@
  * set they are controlling two groups of 9 LEDs (first chip controls 9 Red & 9 Blue, second chip controls 9 Green & 9 Yellow; pattern repeats for total of 6 controller chips,
  * controlling 3 complete color groups).
  *
- * Also added ability to send commands via Console (115200 baud), allowing control from a computer (or other TTL Console source).
+ * Also added ability to send commands via Console (telnet localhost 6571 on Yun), allowing control from a computer (or other TTL Console source).
  *
  * Anyone can use this code for whatever purpose they feel like - have fun!
  *
@@ -327,8 +327,7 @@ void demo() {
   static int led = 0, i, j;
   if (demoSection==0) {
     for (i=0; i<10; i++) {
-      for (j=0; j<numLeds; j++) 
-      {
+      for (j=0; j<numLeds; j++) {
         setLed(j, 0xFF);
       }
       refreshLeds();
@@ -446,7 +445,7 @@ void demo() {
     delay(100);
     setGroup(gyLeds, 0, numLeds/4, 0);
     refreshLeds();
-    delay(100);
+    delay(500);
     demoSection++;
   }
   else if (demoSection<12) {
