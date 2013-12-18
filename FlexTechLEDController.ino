@@ -16,11 +16,15 @@
  * set they are controlling two groups of 9 LEDs (first chip controls 9 Red & 9 Blue, second chip controls 9 Green & 9 Yellow; pattern repeats for total of 6 controller chips,
  * controlling 3 complete color groups).
  *
- * Also added ability to send commands via serial (115200 baud), allowing control from a computer (or other TTL serial source).
+ * Also added ability to send commands via Console (115200 baud), allowing control from a computer (or other TTL Console source).
  *
  * Anyone can use this code for whatever purpose they feel like - have fun!
  *
+ * 12/18/2013 - Updated for Arduino Yun - using Console instead of Serial now.
+ *
  */
+ 
+#include <Console.h>
 
 #define uint8 unsigned char 
 #define uint16 unsigned int
@@ -43,12 +47,12 @@ const int Datapin = 5;
 uint8_t leds[numLeds];
 uint16_t rbLeds[numLeds/4], gyLeds[numLeds/4];
 
-// Variables for performing serial commands
+// Variables for performing Console commands
 uint16_t cmd;
 uint8_t brightness;
 
 // These two variables are for controlling the Demo
-int isInited=0, demoSection=7;
+int isInited=0, demoSection=7, displayedHelp=0;
 
 void ClkProduce(void) {
   digitalWrite(Clkpin, LOW);
@@ -122,15 +126,15 @@ void refreshLeds() {
   Send32Zero();
   for (i=0; i<numLeds; i+=3) {
     /*
-    Serial.print(i);
-     Serial.print(", ");
-     Serial.println(leds[i]);
-     Serial.print(i+1);
-     Serial.print(", ");
-     Serial.println(leds[i+1]);
-     Serial.print(i+2);
-     Serial.print(", ");
-     Serial.println(leds[i+2]);
+    Console.print(i);
+     Console.print(", ");
+     Console.println(leds[i]);
+     Console.print(i+1);
+     Console.print(", ");
+     Console.println(leds[i+1]);
+     Console.print(i+2);
+     Console.print(", ");
+     Console.println(leds[i+2]);
      */
     DataDealWithAndSend(leds[i], leds[i+1], leds[i+2]);
   }
@@ -198,63 +202,69 @@ void setup()  {
     }
   }
 
-  Serial.begin(9600);
-  displayHelp();
+  // initialize serial communication:
+  Bridge.begin();
+  Console.begin();
 }
 
 void displayHelp() {
   // Print out useful information
-  Serial.print("FlexTechLEDController (for RGBY set) Version ");
-  Serial.println(versionNum);
-  Serial.println("\r\nStephen Paine 2012");
-  Serial.print("\r\nNumber of LEDs: ");
-  Serial.println(numLeds);
-  Serial.println("\r\n\r\nCommands are given as <cmdCode>,<brightness (all but clear/demo)>,...\\n");
-  Serial.println("\r\n Command Codes are:");
-  Serial.println("\t0xC1A4 (49572)\tClears all LEDs (turns them off)");
-  Serial.println("\t0xDE30 (56880)\tBegins/Returns to Demo Mode");
-  Serial.println("\t0x04ED (1261)\tSets all Red LED groups");
-  Serial.println("\0xB10E (45326)\tSets all Blue LED groups");
-  Serial.println("\0x64E7 (25831)\tSets all Green LED groups");
-  Serial.println("\0x9E10 (40464)\tSets on all Yellow LED groups");
-  Serial.println("\t<LED #>\t\tSets given LED # (ex: 0 sets first LED)");
-  Serial.println("\r\n\r\nExample command:\r\n49572,1261,255,25831,50\\n");
-  Serial.println("would clear all, set all red groups to full brightness, and set all green groups to a brightness of 50.\r\n");
-  Serial.println("Ready\r\n");
+  Console.print("FlexTechLEDController (for RGBY set) Version ");
+  Console.println(versionNum);
+  Console.println("\r\nStephen Paine 2012");
+  Console.print("\r\nNumber of LEDs: ");
+  Console.println(numLeds);
+  Console.println("\r\n\r\nCommands are given as <cmdCode>,<brightness (all but clear/demo)>,...\\n");
+  Console.println("\r\n Command Codes are:");
+  Console.println("\t0xC1A4 (49572)\tClears all LEDs (turns them off)");
+  Console.println("\t0xDE30 (56880)\tBegins/Returns to Demo Mode");
+  Console.println("\t0x04ED (1261)\tSets all Red LED groups");
+  Console.println("\0xB10E (45326)\tSets all Blue LED groups");
+  Console.println("\0x64E7 (25831)\tSets all Green LED groups");
+  Console.println("\0x9E10 (40464)\tSets on all Yellow LED groups");
+  Console.println("\t<LED #>\t\tSets given LED # (ex: 0 sets first LED)");
+  Console.println("\r\n\r\nExample command:\r\n49572,1261,255,25831,50\\n");
+  Console.println("would clear all, set all red groups to full brightness, and set all green groups to a brightness of 50.\r\n");
+  Console.println("Ready\r\n");
 }
 
 void loop()  {
+  if (!displayedHelp && !isInited && Console) {
+    displayHelp();
+    displayedHelp=1;
+  }
+  
   //static int i,j;
 
-  // if there's any serial available, read it:
-  while (Serial.available() > 0) {
+  // if there's any Console available, read it:
+  while (Console.available() > 0) {
     isInited=1;
 
-    if (Serial.available() <= 2) {
-      if (Serial.peek() == '\n') {
-        Serial.read();
+    if (Console.available() <= 2) {
+      if (Console.peek() == '\n') {
+        Console.read();
         displayHelp();
         continue;
       }
 
-      if (Serial.peek() == '\r') {
-        Serial.read();
+      if (Console.peek() == '\r') {
+        Console.read();
         displayHelp();
         continue;
       }
     }
 
-    if (Serial.peek() < 48 || Serial.peek() > 57) {
-      Serial.read();
+    if (Console.peek() < 48 || Console.peek() > 57) {
+      Console.read();
       displayHelp();
       continue;
     }
 
-    cmd=Serial.parseInt();
+    cmd=Console.parseInt();
 
-    Serial.print("Received command: ");
-    Serial.print(cmd, HEX);
-    Serial.print("\r\n");
+    Console.print("Received command: ");
+    Console.print(cmd, HEX);
+    Console.print("\r\n");
 
     if (cmd==0xC1A4) {
       //49572
@@ -268,13 +278,13 @@ void loop()  {
       demoSection=0;
     }
     else {
-      brightness=Serial.parseInt();
+      brightness=Console.parseInt();
       if (brightness<0 || brightness>255) {
         brightness=255;
       }
-      Serial.print("Received brightness: ");
-      Serial.print(brightness, HEX);
-      Serial.print("\r\n");
+      Console.print("Received brightness: ");
+      Console.print(brightness, HEX);
+      Console.print("\r\n");
 
       if (cmd==0x04ED) {
         //1261
@@ -302,7 +312,7 @@ void loop()  {
     }
 
     // look for the newline. That's the end of the command
-    if (Serial.read() == '\n') {
+    if (Console.read() == '\n') {
       refreshLeds();
     }
   }
@@ -315,10 +325,10 @@ void loop()  {
 
 void demo() {
   static int led = 0, i, j;
-
   if (demoSection==0) {
     for (i=0; i<10; i++) {
-      for (j=0; j<numLeds; j++) {
+      for (j=0; j<numLeds; j++) 
+      {
         setLed(j, 0xFF);
       }
       refreshLeds();
@@ -408,8 +418,7 @@ void demo() {
       led=0;
       demoSection++;
     }
-  } 
-  else if (demoSection==7) {
+   } else if (demoSection==7) {
     // Pulse through color groups
     clearAllLeds();
     refreshLeds();
@@ -437,7 +446,7 @@ void demo() {
     delay(100);
     setGroup(gyLeds, 0, numLeds/4, 0);
     refreshLeds();
-    delay(500);
+    delay(100);
     demoSection++;
   }
   else if (demoSection<12) {
