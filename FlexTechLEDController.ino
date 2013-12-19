@@ -20,22 +20,39 @@
  *
  * Anyone can use this code for whatever purpose they feel like - have fun!
  *
- * 12/18/2013 - Updated for Arduino Yun - using Console instead of Serial now.
+ * 12/18/2013 - Changed to use Bridge and REST
  *
+ *  Possible commands created in this shetch:
+ *
+ * "/arduino/demo"                      -> go into demo mode
+ * "/arduino/clear"                     -> clear all LEDS (turn all LEDs OFF)
+ * "/arduino/group/red/<brightness>"    -> set all RED leds to <brightness> 0-255
+ * "/arduino/group/blue/<brightness>"   -> set all BLUE leds to <brightness> 0-255
+ * "/arduino/group/green/<brightness>"  -> set all GREEN leds to <brightness> 0-255
+ * "/arduino/group/yellow/<brightness>" -> set all YELLOW leds to <brightness> 0-255
+ * "/arduino/led/<num>/<brightness>"    -> set <led #> to <brightness> 0-107, 0-255
+ * "/arduino/refresh"                   -> refresh LEDs - sends out any pending changes
  */
  
-#include <Console.h>
+#include <Bridge.h>
+#include <YunServer.h>
+#include <YunClient.h>
 
 #define uint8 unsigned char 
 #define uint16 unsigned int
 #define uint32 unsigned long int
+#define BUFFERSIZE 11
+
+// Listen on default port 5555, the webserver on the Yun
+// will forward there all the HTTP requests for us.
+YunServer server;
 
 const double versionNum = 1.1;
 
 // For this code, # of leds in light set; must be divisible by 4 and 3!
 // 108/4=27 LEDs per color group
 // 108/3=36 LEDs per section (each section contains a red, blue, green, and yellow section
-const uint16_t numLeds=108;
+const uint8_t numLeds=108;
 
 // Setup pins for Clock and Data
 //const int Clkpin = 12;
@@ -47,12 +64,15 @@ const int Datapin = 5;
 uint8_t leds[numLeds];
 uint16_t rbLeds[numLeds/4], gyLeds[numLeds/4];
 
-// Variables for performing Console commands
-uint16_t cmd;
-uint8_t brightness;
+// Variables used during REST commands
+uint8_t brightness, led;
 
 // These two variables are for controlling the Demo
 int isInited=0, demoSection=7, displayedHelp=0;
+
+unsigned long lastCheck=0;
+
+char buffer[BUFFERSIZE];
 
 void ClkProduce(void) {
   digitalWrite(Clkpin, LOW);
@@ -201,120 +221,184 @@ void setup()  {
       gyLeds[(i*9)+j] |= (((i*9*4)+j+27) &0xFF);
     }
   }
+  
+  refreshLeds();
 
-  // initialize serial communication:
+    // Bridge startup
+  pinMode(13, OUTPUT);
+  digitalWrite(13, LOW);
   Bridge.begin();
-  Console.begin();
+  digitalWrite(13, HIGH);
+
+  // Listen for incoming connection only from localhost
+  // (no one from the external network could connect)
+  server.listenOnLocalhost();
+  server.begin();
 }
 
-void displayHelp() {
-  // Print out useful information
-  Console.print("FlexTechLEDController (for RGBY set) Version ");
-  Console.println(versionNum);
-  Console.println("\r\nStephen Paine 2012");
-  Console.print("\r\nNumber of LEDs: ");
-  Console.println(numLeds);
-  Console.println("\r\n\r\nCommands are given as <cmdCode>,<brightness (all but clear/demo)>,...\\n");
-  Console.println("\r\n Command Codes are:");
-  Console.println("\t0xC1A4 (49572)\tClears all LEDs (turns them off)");
-  Console.println("\t0xDE30 (56880)\tBegins/Returns to Demo Mode");
-  Console.println("\t0x04ED (1261)\tSets all Red LED groups");
-  Console.println("\0xB10E (45326)\tSets all Blue LED groups");
-  Console.println("\0x64E7 (25831)\tSets all Green LED groups");
-  Console.println("\0x9E10 (40464)\tSets on all Yellow LED groups");
-  Console.println("\t<LED #>\t\tSets given LED # (ex: 0 sets first LED)");
-  Console.println("\r\n\r\nExample command:\r\n49572,1261,255,25831,50\\n");
-  Console.println("would clear all, set all red groups to full brightness, and set all green groups to a brightness of 50.\r\n");
-  Console.println("Ready\r\n");
+void process(YunClient client) {
+  client.setTimeout(1);
+  
+  // read the command
+  String command = client.readStringUntil('/');
+  command.replace('\r',' ');
+  command.trim();
+  client.print(F("Command: "));
+  client.println(command);
+
+  // is "group" command?
+  if (command.equals("group")) {
+    isInited=1;
+    groupCommand(client);
+  }
+
+  // is "led" command?
+  if (command.equals("led")) {
+    isInited=1;
+    ledCommand(client);
+  }
+
+  // is "demo" command?
+  if (command.equals("demo")) {
+    isInited=0;
+    demoSection=0;
+    client.println(F("Went into demo mode."));
+  }
+  
+  // is "clear" command?
+  if (command.equals("clear")) {
+    clearAllLeds();
+    isInited=1;
+    refreshLeds();
+    client.println(F("Cleared LEDs and refreshed."));
+  }
+  
+  // is "refresh" command?
+  if (command.equals("refresh")) {
+    isInited=1;
+    refreshLeds();
+    client.println(F("LEDs refreshed."));
+  }
+
+}
+
+void groupCommand(YunClient client) {
+  String command = client.readStringUntil('/');
+  char temp = 0;
+  int found = 0;
+  
+  command.replace('\r',' ');
+  command.trim();
+  
+  client.print(F("Group: "));
+  client.println(command);
+  
+  while ((temp = client.read()) != -1) {
+    if (found > BUFFERSIZE) {
+      break;
+    } else if (temp == '/') {
+      client.println(F("Skipping /"));
+      continue;
+    } else {
+      buffer[found++] = temp;
+    }
+  }
+  
+  client.print(F("found="));
+  client.println(found);
+  
+  if (!found) {
+    client.println("Error: brightness not sent!");
+    return;
+  } else {
+    if (found > BUFFERSIZE-1) {
+      buffer[BUFFERSIZE] = '\0';
+    } else {
+      buffer[found] = '\0';
+    }
+    brightness = atoi(buffer);
+    client.print(F("Brightness: "));
+    client.println(brightness);
+  }
+  
+  // Check for brightness, or ignore command
+  if (command.equals("red")) {
+    setGroup(rbLeds, 1, numLeds/4, brightness);
+  } else if (command.equals("blue")) {
+    setGroup(rbLeds, 0, numLeds/4, brightness);
+  } else if (command.equals("green")) {
+    setGroup(gyLeds, 1, numLeds/4, brightness);
+  } else if (command.equals("yellow")) {
+    setGroup(gyLeds, 0, numLeds/4, brightness);
+  } else {
+    client.print(F("Unknown group, "));
+    client.print(command);
+    client.println(F(", ignoring."));
+  }
+}
+
+void ledCommand(YunClient client) {
+  char temp = 0;
+  int found = 0;
+  
+  led = client.parseInt();
+  
+  client.print(F("LED: " ));
+  client.println(led);
+ 
+  while ((temp = client.read()) != -1) {
+    if (found > BUFFERSIZE) {
+      break;
+    } else if (temp == '/') {
+      client.println(F("Skipping /"));
+      continue;
+    } else {
+      buffer[found++] = temp;
+    }
+  }
+  
+  client.print(F("found="));
+  client.println(found);
+  
+  if (!found) {
+    client.println("Error: brightness not sent!");
+    return;
+  } else {
+    if (found > BUFFERSIZE-1) {
+      buffer[BUFFERSIZE] = '\0';
+    } else {
+      buffer[found] = '\0';
+    }
+    brightness = atoi(buffer);
+    client.print(F("Brightness: "));
+    client.println(brightness);
+  }
+  
+  if (led >= numLeds) {
+    client.print(F("Invalid LED #, "));
+    client.print(led);
+    client.println(F(", ignoring."));
+  } else {
+    // Check for brightness, or ignore command
+    setLed(led, brightness);
+  }
 }
 
 void loop()  {
-  if (!displayedHelp && !isInited && Console) {
-    displayHelp();
-    displayedHelp=1;
-  }
+  // Poll for new requests every 50ms
+  if (abs(millis() - lastCheck) >= 50) {
+    // Get clients coming from server
+    YunClient client = server.accept();
   
-  //static int i,j;
-
-  // if there's any Console available, read it:
-  while (Console.available() > 0) {
-    isInited=1;
-
-    if (Console.available() <= 2) {
-      if (Console.peek() == '\n') {
-        Console.read();
-        displayHelp();
-        continue;
-      }
-
-      if (Console.peek() == '\r') {
-        Console.read();
-        displayHelp();
-        continue;
-      }
+    // There is a new client?
+    if (client) {
+      // Process request
+      process(client);
+  
+      // Close connection and free resources.
+      client.stop();
     }
-
-    if (Console.peek() < 48 || Console.peek() > 57) {
-      Console.read();
-      displayHelp();
-      continue;
-    }
-
-    cmd=Console.parseInt();
-
-    Console.print("Received command: ");
-    Console.print(cmd, HEX);
-    Console.print("\r\n");
-
-    if (cmd==0xC1A4) {
-      //49572
-      //Clear leds (all off)
-      clearAllLeds();
-    } 
-    else if (cmd==0xDE30) {
-      //56880
-      // Go back to demo mode
-      isInited=0;
-      demoSection=0;
-    }
-    else {
-      brightness=Console.parseInt();
-      if (brightness<0 || brightness>255) {
-        brightness=255;
-      }
-      Console.print("Received brightness: ");
-      Console.print(brightness, HEX);
-      Console.print("\r\n");
-
-      if (cmd==0x04ED) {
-        //1261
-        // turn on all red
-        setGroup(rbLeds, 1, numLeds/4, brightness);
-      } 
-      else if (cmd==0xB10E) {
-        //45326
-        // turn on all blue
-        setGroup(rbLeds, 0, numLeds/4, brightness);
-      } 
-      else if (cmd==0x64E7) {
-        //25831
-        // turn on all green
-        setGroup(gyLeds, 1, numLeds/4, brightness);
-      } 
-      else if (cmd==0x9E10) {
-        //40464
-        // turn on all yellow
-        setGroup(gyLeds, 0, numLeds/4, brightness);
-      } 
-      else {
-        setLed(cmd, brightness);
-      }
-    }
-
-    // look for the newline. That's the end of the command
-    if (Console.read() == '\n') {
-      refreshLeds();
-    }
+    lastCheck=millis();
   }
 
   if (!isInited) {
