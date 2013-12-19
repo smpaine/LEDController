@@ -25,7 +25,8 @@
  *  Possible commands created in this shetch:
  *
  * "/arduino/demo"                      -> go into demo mode
- * "/arduino/clear"                     -> clear all LEDS (turn all LEDs OFF)
+ * "/arduino/clear"                     -> turn all LEDs OFF
+ * "/arduino/allOn"                     -> turns all LEDs ON
  * "/arduino/group/red/<brightness>"    -> set all RED leds to <brightness> 0-255
  * "/arduino/group/blue/<brightness>"   -> set all BLUE leds to <brightness> 0-255
  * "/arduino/group/green/<brightness>"  -> set all GREEN leds to <brightness> 0-255
@@ -168,6 +169,13 @@ void clearAllLeds() {
   }
 }
 
+void turnOnAllLeds() {
+  static int i;
+  for (i=0; i<numLeds; i++) {
+    setLed(i, 0xFF);
+  }
+}
+
 void setGroup(uint16_t *group, uint8_t highOrLow, uint8_t groupLen, uint8_t brightness) {
   int i;
 
@@ -246,39 +254,49 @@ void process(YunClient client) {
   client.print(F("Command: "));
   client.println(command);
 
-  // is "group" command?
-  if (command.equals("group")) {
-    isInited=1;
-    groupCommand(client);
-  }
-
-  // is "led" command?
-  if (command.equals("led")) {
-    isInited=1;
-    ledCommand(client);
-  }
-
-  // is "demo" command?
-  if (command.equals("demo")) {
-    isInited=0;
-    demoSection=0;
-    client.println(F("Went into demo mode."));
-  }
-  
-  // is "clear" command?
-  if (command.equals("clear")) {
-    clearAllLeds();
-    isInited=1;
-    refreshLeds();
-    client.println(F("Cleared LEDs and refreshed."));
-  }
-  
   // is "refresh" command?
   if (command.equals("refresh")) {
     isInited=1;
     refreshLeds();
     client.println(F("LEDs refreshed."));
   }
+  
+  // is "group" command?
+  else if (command.equals("group")) {
+    isInited=1;
+    groupCommand(client);
+  }
+
+  // is "led" command?
+  else if (command.equals("led")) {
+    isInited=1;
+    ledCommand(client);
+  }
+  
+  // is "clear" command?
+  else if (command.equals("clear")) {
+    clearAllLeds();
+    isInited=1;
+    refreshLeds();
+    client.println(F("Cleared LEDs and refreshed."));
+  }
+  
+  // is "allOn" command?
+  else if (command.equals("allOn")) {
+    turnOnAllLeds();
+    isInited=1;
+    refreshLeds();
+    client.println(F("Turned on all LEDs and refreshed."));
+  }
+  
+  // is "demo" command?
+  else if (command.equals("demo")) {
+    isInited=0;
+    demoSection=0;
+    client.println(F("Went into demo mode."));
+  }
+  
+  return;
 
 }
 
