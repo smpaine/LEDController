@@ -421,6 +421,8 @@ void loop()  {
 
   if (!isInited) {
     demo();
+  } else {
+    refreshLeds();
   }
 
 }
